@@ -18,10 +18,10 @@ fn setup_workspace() -> Workspace {
 fn check() {
     let mut workspace = setup_workspace();
     let test = workspace
-        .open_file("test.py", "import random\n")
+        .open_file("test.py", "import random22\n")
         .expect("File to be opened");
 
     let result = workspace.check_file(test).expect("Check to succeed");
 
-    assert_eq!(result, vec![""]);
+    assert_eq!(result, vec!["Unresolved import 'random22'"]);
 }
