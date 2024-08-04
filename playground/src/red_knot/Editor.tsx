@@ -1,50 +1,42 @@
-import { useCallback, useDeferredValue, useMemo, useState } from "react";
-import { Panel, PanelGroup } from "react-resizable-panels";
-import { Diagnostic, Workspace } from "../pkg/ruff_wasm";
-import { ErrorMessage } from "./ErrorMessage";
-import Header from "./Header";
+import {useCallback, useDeferredValue, useMemo, useState} from "react";
+import {Panel, PanelGroup} from "react-resizable-panels";
+import {Settings, TargetVersion, Workspace} from "./pkg";
+import {ErrorMessage} from "../shared/ErrorMessage";
+import Header from "../shared/Header";
 import PrimarySideBar from "./PrimarySideBar";
-import { HorizontalResizeHandle } from "./ResizeHandle";
-import SecondaryPanel, {
-  SecondaryPanelResult,
-  SecondaryTool,
-} from "./SecondaryPanel";
-import SecondarySideBar from "./SecondarySideBar";
-import { persist, persistLocal } from "./settings";
-import SettingsEditor from "./SettingsEditor";
-import SourceEditor from "./SourceEditor";
-import { useTheme } from "./theme";
+import {HorizontalResizeHandle} from "../shared/ResizeHandle";
+
+import {useTheme} from "../shared/theme";
 
 type Tab = "Source" | "Settings";
 
-interface Source {
-  pythonSource: string;
-  settingsSource: string;
-  revision: number;
-}
-
 interface CheckResult {
-  diagnostics: Diagnostic[];
+  diagnostics: string[];
   error: string | null;
-  secondary: SecondaryPanelResult;
 }
 
 type Props = {
   initialSource: string;
   initialSettings: string;
-  ruffVersion: string;
+  version: string;
 };
 
 export default function Editor({
-  initialSource,
-  initialSettings,
-  ruffVersion,
-}: Props) {
-  const [source, setSource] = useState<Source>({
-    revision: 0,
-    pythonSource: initialSource,
-    settingsSource: initialSettings,
+                                 initialSource,
+
+                                 version,
+                               }: Props) {
+  const [workspace, setWorkspace] = useState(() => {
+    const settings = new Settings();
+    settings.target_version = TargetVersion.Py312;
+    return new Workspace("/", settings);
   });
+
+  const [revision, setRevision] = useState(0);
+
+  const [file, setFile] = useState(() =>
+    workspace.openFile("main.py", initialSource),
+  );
 
   const [tab, setTab] = useState<Tab>("Source");
   const [secondaryTool, setSecondaryTool] = useState<SecondaryTool | null>(
@@ -83,15 +75,14 @@ export default function Editor({
     setSecondaryTool(tool);
   };
 
-  const deferredSource = useDeferredValue(source);
+  // TODO: figure out how to do deferred
+  const deferredSource = useDeferredValue(file);
 
   const checkResult: CheckResult = useMemo(() => {
-    const { pythonSource, settingsSource } = deferredSource;
+    let file = deferredSource;
 
     try {
-      const config = JSON.parse(settingsSource);
-      const workspace = new Workspace(config);
-      const diagnostics = workspace.check(pythonSource);
+      const diagnostics = workspace.checkFile(file);
 
       let secondary: SecondaryPanelResult = null;
 
@@ -100,35 +91,35 @@ export default function Editor({
           case "AST":
             secondary = {
               status: "ok",
-              content: workspace.parse(pythonSource),
+              content: workspace.parsed(file),
             };
             break;
 
           case "Format":
             secondary = {
-              status: "ok",
-              content: workspace.format(pythonSource),
+              status: "error",
+              content: "Not supported",
             };
             break;
 
           case "FIR":
             secondary = {
-              status: "ok",
-              content: workspace.format_ir(pythonSource),
+              status: "error",
+              content: "Not supported",
             };
             break;
 
           case "Comments":
             secondary = {
-              status: "ok",
-              content: workspace.comments(pythonSource),
+              status: "error",
+              content: "Not supported",
             };
             break;
 
           case "Tokens":
             secondary = {
               status: "ok",
-              content: workspace.tokens(pythonSource),
+              content: workspace.tokens(file),
             };
             break;
         }
@@ -154,43 +145,36 @@ export default function Editor({
   }, [deferredSource, secondaryTool]);
 
   const handleShare = useCallback(() => {
-    persist(source.settingsSource, source.pythonSource).catch((error) =>
-      console.error(`Failed to share playground: ${error}`),
-    );
-  }, [source]);
+    console.log("TODO");
+    // persist(source.settingsSource, source.pythonSource).catch((error) =>
+    //   console.error(`Failed to share playground: ${error}`),
+    // );
+  }, []);
 
   const handlePythonSourceChange = useCallback((pythonSource: string) => {
-    setSource((source) => {
-      const newSource = {
-        ...source,
-        pythonSource,
-        revision: source.revision + 1,
-      };
-
-      persistLocal(newSource);
-      return newSource;
-    });
+    workspace.updateFile(file, pythonSource);
+    setRevision((revision) => revision + 1);
   }, []);
 
-  const handleSettingsSourceChange = useCallback((settingsSource: string) => {
-    setSource((source) => {
-      const newSource = {
-        ...source,
-        settingsSource,
-        revision: source.revision + 1,
-      };
-
-      persistLocal(newSource);
-      return newSource;
-    });
-  }, []);
+  // const handleSettingsSourceChange = useCallback((settingsSource: string) => {
+  //   setSource((source) => {
+  //     const newSource = {
+  //       ...source,
+  //       settingsSource,
+  //       revision: source.revision + 1,
+  //     };
+  //
+  //     persistLocal(newSource);
+  //     return newSource;
+  //   });
+  // }, []);
 
   return (
     <main className="flex flex-col h-full bg-ayu-background dark:bg-ayu-background-dark">
       <Header
-        edit={source.revision}
+        edit={revision}
         theme={theme}
-        version={ruffVersion}
+        version={version}
         onChangeTheme={setTheme}
         onShare={handleShare}
       />
@@ -210,27 +194,27 @@ export default function Editor({
                 diagnostics={checkResult.diagnostics}
                 onChange={handlePythonSourceChange}
               />
-              <SettingsEditor
-                visible={tab === "Settings"}
-                source={source.settingsSource}
-                theme={theme}
-                onChange={handleSettingsSourceChange}
-              />
+              {/*<SettingsEditor*/}
+              {/*  visible={tab === "Settings"}*/}
+              {/*  source={source.settingsSource}*/}
+              {/*  theme={theme}*/}
+              {/*  onChange={handleSettingsSourceChange}*/}
+              {/*/>*/}
             </Panel>
             {secondaryTool != null && (
               <>
-                <HorizontalResizeHandle />
+                <HorizontalResizeHandle/>
                 <Panel
                   id="secondary-panel"
                   order={1}
                   className={"my-2"}
                   minSize={10}
                 >
-                  <SecondaryPanel
-                    theme={theme}
-                    tool={secondaryTool}
-                    result={checkResult.secondary}
-                  />
+                  {/*<SecondaryPanel*/}
+                  {/*  theme={theme}*/}
+                  {/*  tool={secondaryTool}*/}
+                  {/*  result={checkResult.secondary}*/}
+                  {/*/>*/}
                 </Panel>
               </>
             )}
