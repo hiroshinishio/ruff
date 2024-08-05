@@ -127,6 +127,7 @@
 //! for each [`Definition`] which is flipped to true when we record that definition for a use.)
 use crate::semantic_index::ast_ids::ScopedUseId;
 use crate::semantic_index::definition::Definition;
+use crate::semantic_index::expression::Expression;
 use crate::semantic_index::symbol::ScopedSymbolId;
 use ruff_index::IndexVec;
 use std::ops::Range;
@@ -134,7 +135,6 @@ use std::ops::Range;
 /// All definitions that can reach a given use of a name.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct UseDefMap<'db> {
-    // TODO store constraints with definitions for type narrowing
     /// Definition IDs array for `definitions_by_use` and `public_definitions` to slice into.
     all_definitions: Vec<Definition<'db>>,
 
@@ -166,7 +166,7 @@ impl<'db> UseDefMap<'db> {
 /// Definitions visible for a symbol at a particular use (or end-of-scope).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Definitions {
-    /// [`Range`] in `all_definitions` of the visible definition IDs.
+    /// [`Range`] in `all_definitions` of the visible definitions.
     definitions_range: Range<usize>,
     /// Is the symbol possibly unbound at this point?
     may_be_unbound: bool,
@@ -188,7 +188,7 @@ impl Default for Definitions {
     }
 }
 
-/// A snapshot of the visible definitions for each symbol at a particular point in control flow.
+/// A snapshot of the definitions and constraints state at a particular point in control flow.
 #[derive(Clone, Debug)]
 pub(super) struct FlowSnapshot {
     definitions_by_symbol: IndexVec<ScopedSymbolId, Definitions>,
@@ -196,7 +196,7 @@ pub(super) struct FlowSnapshot {
 
 #[derive(Debug)]
 pub(super) struct UseDefMapBuilder<'db> {
-    /// Definition IDs array for `definitions_by_use` and `definitions_by_symbol` to slice into.
+    /// Append-only array of Definitions for `definitions_by_*` to slice into.
     all_definitions: Vec<Definition<'db>>,
 
     /// Visible definitions at each so-far-recorded use.
@@ -265,7 +265,7 @@ impl<'db> UseDefMapBuilder<'db> {
 
         // If the snapshot we are restoring is missing some symbols we've recorded since, we need
         // to fill them in so the symbol IDs continue to line up. Since they don't exist in the
-        // snapshot, the correct state to fill them in with is "unbound", the default.
+        // snapshot, the correct state to fill them in with is "unbound".
         self.definitions_by_symbol
             .resize(num_symbols, Definitions::unbound());
     }

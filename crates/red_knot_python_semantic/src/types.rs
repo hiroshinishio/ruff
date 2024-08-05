@@ -117,7 +117,7 @@ pub enum Type<'db> {
     /// name does not exist or is not bound to any value (this represents an error, but with some
     /// leniency options it could be silently resolved to Unknown in some cases)
     Unbound,
-    /// the None object (TODO remove this in favor of Instance(types.NoneType)
+    /// the None singleton object
     None,
     /// a specific function object
     Function(FunctionType<'db>),
@@ -127,8 +127,11 @@ pub enum Type<'db> {
     Class(ClassType<'db>),
     /// the set of Python objects with the given class in their __class__'s method resolution order
     Instance(ClassType<'db>),
+    /// the set of objects in any of the types in the union
     Union(UnionType<'db>),
+    /// the set of objects in all of the types in the intersection
     Intersection(IntersectionType<'db>),
+    /// An integer literal
     IntLiteral(i64),
     /// A boolean literal, either `True` or `False`.
     BooleanLiteral(bool),

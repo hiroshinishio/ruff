@@ -924,7 +924,6 @@ impl<'db> TypeInferenceBuilder<'db> {
         ty
     }
 
-    #[allow(clippy::unused_self)]
     fn infer_number_literal_expression(&mut self, literal: &ast::ExprNumberLiteral) -> Type<'db> {
         let ast::ExprNumberLiteral { range: _, value } = literal;
 
@@ -2175,6 +2174,26 @@ mod tests {
         };
         let implicit_builtins_file = builtins_scope(&db).expect("builtins to exist").file(&db);
         assert_eq!(builtins_file, implicit_builtins_file);
+
+        Ok(())
+    }
+
+    #[test]
+    fn narrow_not_none() -> anyhow::Result<()> {
+        let mut db = setup_db();
+
+        db.write_dedented(
+            "/src/a.py",
+            "
+            x = None if flag else 1
+            y = 0
+            if x is not None:
+                y = x
+            ",
+        )?;
+
+        assert_public_ty(&db, "/src/a.py", "x", "Literal[1] | None");
+        assert_public_ty(&db, "/src/a.py", "y", "Literal[0, 1]");
 
         Ok(())
     }
