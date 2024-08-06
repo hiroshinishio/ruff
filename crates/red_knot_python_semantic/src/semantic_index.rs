@@ -375,7 +375,7 @@ mod tests {
         let foo = global_table.symbol_id_by_name("foo").unwrap();
 
         let use_def = use_def_map(&db, scope);
-        let [definition] = use_def.public_definitions(foo) else {
+        let [definition] = use_def.public_definitions(foo).collect::<Vec<_>>()[..] else {
             panic!("expected one definition");
         };
         assert!(matches!(definition.node(&db), DefinitionKind::Import(_)));
@@ -412,11 +412,14 @@ mod tests {
         );
 
         let use_def = use_def_map(&db, scope);
-        let [definition] = use_def.public_definitions(
-            global_table
-                .symbol_id_by_name("foo")
-                .expect("symbol to exist"),
-        ) else {
+        let [definition] = use_def
+            .public_definitions(
+                global_table
+                    .symbol_id_by_name("foo")
+                    .expect("symbol to exist"),
+            )
+            .collect::<Vec<_>>()[..]
+        else {
             panic!("expected one definition");
         };
         assert!(matches!(
@@ -439,8 +442,9 @@ mod tests {
             "a symbol used but not defined in a scope should have only the used flag"
         );
         let use_def = use_def_map(&db, scope);
-        let [definition] =
-            use_def.public_definitions(global_table.symbol_id_by_name("x").expect("symbol exists"))
+        let [definition] = use_def
+            .public_definitions(global_table.symbol_id_by_name("x").expect("symbol exists"))
+            .collect::<Vec<_>>()[..]
         else {
             panic!("expected one definition");
         };
@@ -478,8 +482,9 @@ y = 2
         assert_eq!(names(&class_table), vec!["x"]);
 
         let use_def = index.use_def_map(class_scope_id);
-        let [definition] =
-            use_def.public_definitions(class_table.symbol_id_by_name("x").expect("symbol exists"))
+        let [definition] = use_def
+            .public_definitions(class_table.symbol_id_by_name("x").expect("symbol exists"))
+            .collect::<Vec<_>>()[..]
         else {
             panic!("expected one definition");
         };
@@ -516,11 +521,14 @@ y = 2
         assert_eq!(names(&function_table), vec!["x"]);
 
         let use_def = index.use_def_map(function_scope_id);
-        let [definition] = use_def.public_definitions(
-            function_table
-                .symbol_id_by_name("x")
-                .expect("symbol exists"),
-        ) else {
+        let [definition] = use_def
+            .public_definitions(
+                function_table
+                    .symbol_id_by_name("x")
+                    .expect("symbol exists"),
+            )
+            .collect::<Vec<_>>()[..]
+        else {
             panic!("expected one definition");
         };
         assert!(matches!(
@@ -562,11 +570,14 @@ def func():
         assert_eq!(names(&func2_table), vec!["y"]);
 
         let use_def = index.use_def_map(FileScopeId::global());
-        let [definition] = use_def.public_definitions(
-            global_table
-                .symbol_id_by_name("func")
-                .expect("symbol exists"),
-        ) else {
+        let [definition] = use_def
+            .public_definitions(
+                global_table
+                    .symbol_id_by_name("func")
+                    .expect("symbol exists"),
+            )
+            .collect::<Vec<_>>()[..]
+        else {
             panic!("expected one definition");
         };
         assert!(matches!(definition.node(&db), DefinitionKind::Function(_)));
@@ -669,7 +680,7 @@ class C[T]:
         };
         let x_use_id = x_use_expr_name.scoped_use_id(&db, scope);
         let use_def = use_def_map(&db, scope);
-        let [definition] = use_def.use_definitions(x_use_id) else {
+        let [definition] = use_def.use_definitions(x_use_id).collect::<Vec<_>>()[..] else {
             panic!("expected one definition");
         };
         let DefinitionKind::Assignment(assignment) = definition.node(&db) else {

@@ -80,10 +80,10 @@ pub(crate) fn definition_ty<'db>(db: &'db dyn Db, definition: Definition<'db>) -
 /// provide an `unbound_ty`.
 pub(crate) fn definitions_ty<'db>(
     db: &'db dyn Db,
-    definitions: &[Definition<'db>],
+    definitions: impl Iterator<Item = Definition<'db>>,
     unbound_ty: Option<Type<'db>>,
 ) -> Type<'db> {
-    let def_types = definitions.iter().map(|def| definition_ty(db, *def));
+    let def_types = definitions.map(|def| definition_ty(db, def));
     let mut all_types = unbound_ty.into_iter().chain(def_types);
 
     let Some(first) = all_types.next() else {
