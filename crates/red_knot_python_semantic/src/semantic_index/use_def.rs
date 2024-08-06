@@ -151,7 +151,10 @@ pub(crate) struct UseDefMap<'db> {
 }
 
 impl<'db> UseDefMap<'db> {
-    pub(crate) fn use_definitions(&self, use_id: ScopedUseId) -> impl Iterator<Item = Definition> {
+    pub(crate) fn use_definitions(
+        &self,
+        use_id: ScopedUseId,
+    ) -> impl Iterator<Item = Definition<'db>> + '_ {
         self.definitions_by_use[use_id]
             .visible_definitions
             .iter()
@@ -167,7 +170,7 @@ impl<'db> UseDefMap<'db> {
     pub(crate) fn public_definitions(
         &self,
         symbol: ScopedSymbolId,
-    ) -> impl Iterator<Item = Definition> {
+    ) -> impl Iterator<Item = Definition<'db>> + '_ {
         self.public_definitions[symbol]
             .visible_definitions
             .iter()
@@ -189,7 +192,10 @@ type Definitions = BitSet<DEFINITION_BLOCKS>;
 /// Can reference this * 128 constraints efficiently; tune for performance vs memory.
 const CONSTRAINT_BLOCKS: usize = 4;
 
-type Constraints = BitSetArray<DEFINITION_BLOCKS, CONSTRAINT_BLOCKS>;
+/// Can handle this many visible definitions per symbol at a given time efficiently.
+const MAX_EXPECTED_VISIBLE_DEFINITIONS_PER_SYMBOL: usize = 16;
+
+type Constraints = BitSetArray<CONSTRAINT_BLOCKS, MAX_EXPECTED_VISIBLE_DEFINITIONS_PER_SYMBOL>;
 
 /// Definition index zero is reserved for None (unbound).
 const UNBOUND: usize = 0;
@@ -206,12 +212,20 @@ struct ConstrainedDefinitions {
 
 impl ConstrainedDefinitions {
     fn unbound() -> Self {
-        let mut defs = Definitions::default();
-        defs.insert(UNBOUND);
+        Self::with(UNBOUND)
+    }
+
+    fn with(definition_index: usize) -> Self {
         Self {
-            visible_definitions: defs,
-            constraints: Constraints::default(),
+            visible_definitions: Definitions::with(definition_index),
+            constraints: Constraints::of_size(1),
         }
+    }
+
+    /// Add given definition index as a visible definition
+    fn add_visible_definition(&mut self, definition_index: usize) {
+        self.visible_definitions.insert(definition_index);
+        // TODO update constraints
     }
 
     /// Add given constraint index to all definitions
@@ -281,12 +295,7 @@ impl<'db> UseDefMapBuilder<'db> {
         // path.
         let def_idx = self.all_definitions.len();
         self.all_definitions.push(Some(definition));
-        let mut defs = Definitions::default();
-        defs.insert(def_idx);
-        self.definitions_by_symbol[symbol] = ConstrainedDefinitions {
-            visible_definitions: defs,
-            constraints: Constraints::default(),
-        };
+        self.definitions_by_symbol[symbol] = ConstrainedDefinitions::with(def_idx);
     }
 
     pub(super) fn record_constraint(&mut self, constraint: Expression<'db>) {
@@ -351,7 +360,7 @@ impl<'db> UseDefMapBuilder<'db> {
         for (symbol_id, current) in self.definitions_by_symbol.iter_mut_enumerated() {
             let Some(snapshot) = snapshot.definitions_by_symbol.get(symbol_id) else {
                 // Symbol not present in snapshot, so it's unbound from that path.
-                current.visible_definitions.insert(UNBOUND);
+                current.add_visible_definition(UNBOUND);
                 continue;
             };
 
