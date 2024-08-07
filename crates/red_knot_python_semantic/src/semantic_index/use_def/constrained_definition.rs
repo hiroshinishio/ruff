@@ -43,7 +43,7 @@ pub(super) struct ConstrainedDefinitions {
 #[derive(Debug)]
 pub(super) struct DefinitionIdWithConstraints<'a> {
     pub(super) definition: ScopedDefinitionId,
-    constraint_ids: ConstraintIdIterator<'a>,
+    pub(super) constraint_ids: ConstraintIdIterator<'a>,
 }
 
 impl ConstrainedDefinitions {

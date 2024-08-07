@@ -126,7 +126,8 @@
 //! definition used?", which will require tracking a bit more info in our map, e.g. a "used" bit
 //! for each [`Definition`] which is flipped to true when we record that definition for a use.)
 use self::constrained_definition::{
-    ConstrainedDefinitions, ScopedConstraintId, ScopedDefinitionId,
+    ConstrainedDefinitions, ConstraintIdIterator, DefinitionIdWithConstraintsIterator,
+    ScopedConstraintId, ScopedDefinitionId,
 };
 use crate::semantic_index::ast_ids::ScopedUseId;
 use crate::semantic_index::definition::Definition;
@@ -137,7 +138,7 @@ use ruff_index::IndexVec;
 mod bitset;
 mod constrained_definition;
 
-/// All definitions that can reach a given use of a name.
+/// Applicable definitions and constraints for every use of a name.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct UseDefMap<'db> {
     /// Array of [`Definition`] for [`ConstrainedDefinitions`] to reference. `None` is unbound.
@@ -157,10 +158,12 @@ impl<'db> UseDefMap<'db> {
     pub(crate) fn use_definitions(
         &self,
         use_id: ScopedUseId,
-    ) -> impl Iterator<Item = Definition<'db>> + '_ {
-        self.definitions_by_use[use_id]
-            .iter_visible_definitions()
-            .map(|def_id_with_constraints| self.all_definitions[def_id_with_constraints.definition])
+    ) -> DefinitionWithConstraintsIterator<'_, 'db> {
+        DefinitionWithConstraintsIterator {
+            all_definitions: &self.all_definitions,
+            all_constraints: &self.all_constraints,
+            wrapped: self.definitions_by_use[use_id].iter_visible_definitions(),
+        }
     }
 
     pub(crate) fn use_may_be_unbound(&self, use_id: ScopedUseId) -> bool {
@@ -170,16 +173,62 @@ impl<'db> UseDefMap<'db> {
     pub(crate) fn public_definitions(
         &self,
         symbol: ScopedSymbolId,
-    ) -> impl Iterator<Item = Definition<'db>> + '_ {
-        self.public_definitions[symbol]
-            .iter_visible_definitions()
-            .map(|def_id_with_constraints| self.all_definitions[def_id_with_constraints.definition])
+    ) -> DefinitionWithConstraintsIterator<'_, 'db> {
+        DefinitionWithConstraintsIterator {
+            all_definitions: &self.all_definitions,
+            all_constraints: &self.all_constraints,
+            wrapped: self.public_definitions[symbol].iter_visible_definitions(),
+        }
     }
 
     pub(crate) fn public_may_be_unbound(&self, symbol: ScopedSymbolId) -> bool {
         self.public_definitions[symbol].may_be_unbound()
     }
 }
+
+pub(crate) struct DefinitionWithConstraintsIterator<'map, 'db> {
+    all_definitions: &'map IndexVec<ScopedDefinitionId, Definition<'db>>,
+    all_constraints: &'map IndexVec<ScopedConstraintId, Expression<'db>>,
+    wrapped: DefinitionIdWithConstraintsIterator<'map>,
+}
+
+impl<'map, 'db> Iterator for DefinitionWithConstraintsIterator<'map, 'db> {
+    type Item = DefinitionWithConstraints<'map, 'db>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.wrapped
+            .next()
+            .map(|def_id_with_constraints| DefinitionWithConstraints {
+                definition: self.all_definitions[def_id_with_constraints.definition],
+                constraints: ConstraintsIterator {
+                    all_constraints: self.all_constraints,
+                    constraint_ids: def_id_with_constraints.constraint_ids,
+                },
+            })
+    }
+}
+
+pub(crate) struct DefinitionWithConstraints<'map, 'db> {
+    pub(crate) definition: Definition<'db>,
+    pub(crate) constraints: ConstraintsIterator<'map, 'db>,
+}
+
+pub(crate) struct ConstraintsIterator<'map, 'db> {
+    all_constraints: &'map IndexVec<ScopedConstraintId, Expression<'db>>,
+    constraint_ids: ConstraintIdIterator<'map>,
+}
+
+impl<'map, 'db> Iterator for ConstraintsIterator<'map, 'db> {
+    type Item = Expression<'db>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.constraint_ids
+            .next()
+            .map(|constraint_id| self.all_constraints[constraint_id])
+    }
+}
+
+impl std::iter::FusedIterator for ConstraintsIterator<'_, '_> {}
 
 /// A snapshot of the definitions and constraints state at a particular point in control flow.
 #[derive(Clone, Debug)]

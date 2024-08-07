@@ -16,16 +16,15 @@ use crate::semantic_index::expression::Expression;
 use crate::semantic_index::symbol::{
     FileScopeId, NodeWithScopeKey, NodeWithScopeRef, Scope, ScopeId, ScopedSymbolId, SymbolTable,
 };
+use crate::semantic_index::use_def::UseDefMap;
 use crate::Db;
-
-pub(crate) use self::use_def::UseDefMap;
 
 pub mod ast_ids;
 mod builder;
 pub mod definition;
 pub mod expression;
 pub mod symbol;
-mod use_def;
+pub mod use_def;
 
 type SymbolMap = hashbrown::HashMap<ScopedSymbolId, (), ()>;
 
@@ -312,6 +311,7 @@ mod tests {
     use crate::semantic_index::ast_ids::HasScopedUseId;
     use crate::semantic_index::definition::DefinitionKind;
     use crate::semantic_index::symbol::{FileScopeId, Scope, ScopeKind, SymbolTable};
+    use crate::semantic_index::use_def::DefinitionWithConstraints;
     use crate::semantic_index::{global_scope, semantic_index, symbol_table, use_def_map};
     use crate::Db;
 
@@ -373,7 +373,9 @@ mod tests {
         let foo = global_table.symbol_id_by_name("foo").unwrap();
 
         let use_def = use_def_map(&db, scope);
-        let [definition] = use_def.public_definitions(foo).collect::<Vec<_>>()[..] else {
+        let [DefinitionWithConstraints { definition, .. }] =
+            use_def.public_definitions(foo).collect::<Vec<_>>()[..]
+        else {
             panic!("expected one definition");
         };
         assert!(matches!(definition.node(&db), DefinitionKind::Import(_)));
@@ -410,7 +412,7 @@ mod tests {
         );
 
         let use_def = use_def_map(&db, scope);
-        let [definition] = use_def
+        let [DefinitionWithConstraints { definition, .. }] = use_def
             .public_definitions(
                 global_table
                     .symbol_id_by_name("foo")
@@ -440,7 +442,7 @@ mod tests {
             "a symbol used but not defined in a scope should have only the used flag"
         );
         let use_def = use_def_map(&db, scope);
-        let [definition] = use_def
+        let [DefinitionWithConstraints { definition, .. }] = use_def
             .public_definitions(global_table.symbol_id_by_name("x").expect("symbol exists"))
             .collect::<Vec<_>>()[..]
         else {
@@ -480,7 +482,7 @@ y = 2
         assert_eq!(names(&class_table), vec!["x"]);
 
         let use_def = index.use_def_map(class_scope_id);
-        let [definition] = use_def
+        let [DefinitionWithConstraints { definition, .. }] = use_def
             .public_definitions(class_table.symbol_id_by_name("x").expect("symbol exists"))
             .collect::<Vec<_>>()[..]
         else {
@@ -519,7 +521,7 @@ y = 2
         assert_eq!(names(&function_table), vec!["x"]);
 
         let use_def = index.use_def_map(function_scope_id);
-        let [definition] = use_def
+        let [DefinitionWithConstraints { definition, .. }] = use_def
             .public_definitions(
                 function_table
                     .symbol_id_by_name("x")
@@ -568,7 +570,7 @@ def func():
         assert_eq!(names(&func2_table), vec!["y"]);
 
         let use_def = index.use_def_map(FileScopeId::global());
-        let [definition] = use_def
+        let [DefinitionWithConstraints { definition, .. }] = use_def
             .public_definitions(
                 global_table
                     .symbol_id_by_name("func")
@@ -678,7 +680,9 @@ class C[T]:
         };
         let x_use_id = x_use_expr_name.scoped_use_id(&db, scope);
         let use_def = use_def_map(&db, scope);
-        let [definition] = use_def.use_definitions(x_use_id).collect::<Vec<_>>()[..] else {
+        let [DefinitionWithConstraints { definition, .. }] =
+            use_def.use_definitions(x_use_id).collect::<Vec<_>>()[..]
+        else {
             panic!("expected one definition");
         };
         let DefinitionKind::Assignment(assignment) = definition.node(&db) else {

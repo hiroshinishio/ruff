@@ -4,11 +4,16 @@ use ruff_python_ast::name::Name;
 use crate::builtins::builtins_scope;
 use crate::semantic_index::definition::Definition;
 use crate::semantic_index::symbol::{ScopeId, ScopedSymbolId};
+use crate::semantic_index::use_def::{
+    DefinitionWithConstraints, DefinitionWithConstraintsIterator,
+};
 use crate::semantic_index::{global_scope, symbol_table, use_def_map};
+use crate::types::narrow::narrowing_constraint;
 use crate::{Db, FxOrderSet};
 
 mod display;
 mod infer;
+mod narrow;
 
 pub(crate) use self::infer::{infer_definition_types, infer_scope_types};
 
@@ -80,10 +85,24 @@ pub(crate) fn definition_ty<'db>(db: &'db dyn Db, definition: Definition<'db>) -
 /// provide an `unbound_ty`.
 pub(crate) fn definitions_ty<'db>(
     db: &'db dyn Db,
-    definitions: impl Iterator<Item = Definition<'db>>,
+    definitions_with_constraints: DefinitionWithConstraintsIterator<'_, 'db>,
     unbound_ty: Option<Type<'db>>,
 ) -> Type<'db> {
-    let def_types = definitions.map(|def| definition_ty(db, def));
+    let def_types = definitions_with_constraints.map(
+        |DefinitionWithConstraints {
+             definition,
+             constraints,
+         }| {
+            let mut builder = IntersectionTypeBuilder::new(db);
+            builder = builder.add_positive(definition_ty(db, definition));
+            for constraint_ty in
+                constraints.filter_map(|test| narrowing_constraint(db, test, definition))
+            {
+                builder = builder.add_positive(constraint_ty);
+            }
+            builder.build()
+        },
+    );
     let mut all_types = unbound_ty.into_iter().chain(def_types);
 
     let Some(first) = all_types.next() else {
@@ -308,4 +327,58 @@ pub struct IntersectionType<'db> {
     positive: FxOrderSet<Type<'db>>,
     // the intersection type does not include any value in any of these types
     negative: FxOrderSet<Type<'db>>,
+}
+
+struct IntersectionTypeBuilder<'db> {
+    positive: FxOrderSet<Type<'db>>,
+    negative: FxOrderSet<Type<'db>>,
+    db: &'db dyn Db,
+}
+
+impl<'db> IntersectionTypeBuilder<'db> {
+    fn new(db: &'db dyn Db) -> Self {
+        Self {
+            db,
+            positive: FxOrderSet::default(),
+            negative: FxOrderSet::default(),
+        }
+    }
+
+    /// Adds a positive type to this intersection.
+    fn add_positive(mut self, ty: Type<'db>) -> Self {
+        match ty {
+            Type::Intersection(intersection) => {
+                self.positive.extend(&intersection.positive(self.db));
+                self.negative.extend(&intersection.negative(self.db));
+            }
+            _ => {
+                self.positive.insert(ty);
+            }
+        }
+
+        self
+    }
+
+    /// Adds a negative type to this intersection.
+    fn add_negative(mut self, ty: Type<'db>) -> Self {
+        match ty {
+            Type::Intersection(intersection) => {
+                self.negative.extend(&intersection.positive(self.db));
+                self.positive.extend(&intersection.negative(self.db));
+            }
+            _ => {
+                self.negative.insert(ty);
+            }
+        }
+
+        self
+    }
+
+    fn build(self) -> Type<'db> {
+        if self.positive.len() == 1 && self.negative.is_empty() {
+            *self.positive.last().unwrap()
+        } else {
+            Type::Intersection(IntersectionType::new(self.db, self.positive, self.negative))
+        }
+    }
 }

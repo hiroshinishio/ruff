@@ -2299,6 +2299,7 @@ mod tests {
             .public_definitions(symbol_table(db, scope).symbol_id_by_name(name).unwrap())
             .next()
             .unwrap()
+            .definition
     }
 
     #[test]
