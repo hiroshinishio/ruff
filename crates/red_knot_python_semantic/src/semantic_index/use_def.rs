@@ -160,7 +160,7 @@ impl<'db> UseDefMap<'db> {
     ) -> impl Iterator<Item = Definition<'db>> + '_ {
         self.definitions_by_use[use_id]
             .iter_visible_definitions()
-            .map(|index| self.all_definitions[index])
+            .map(|def_id_with_constraints| self.all_definitions[def_id_with_constraints.definition])
     }
 
     pub(crate) fn use_may_be_unbound(&self, use_id: ScopedUseId) -> bool {
@@ -173,7 +173,7 @@ impl<'db> UseDefMap<'db> {
     ) -> impl Iterator<Item = Definition<'db>> + '_ {
         self.public_definitions[symbol]
             .iter_visible_definitions()
-            .map(|index| self.all_definitions[index])
+            .map(|def_id_with_constraints| self.all_definitions[def_id_with_constraints.definition])
     }
 
     pub(crate) fn public_may_be_unbound(&self, symbol: ScopedSymbolId) -> bool {
@@ -284,13 +284,12 @@ impl<'db> UseDefMapBuilder<'db> {
         debug_assert!(self.definitions_by_symbol.len() >= snapshot.definitions_by_symbol.len());
 
         for (symbol_id, current) in self.definitions_by_symbol.iter_mut_enumerated() {
-            let Some(snapshot) = snapshot.definitions_by_symbol.get(symbol_id) else {
+            if let Some(snapshot) = snapshot.definitions_by_symbol.get(symbol_id) {
+                *current = ConstrainedDefinitions::merge(current, snapshot);
+            } else {
                 // Symbol not present in snapshot, so it's unbound from that path.
                 current.add_unbound();
-                continue;
-            };
-
-            current.merge(snapshot);
+            }
         }
     }
 

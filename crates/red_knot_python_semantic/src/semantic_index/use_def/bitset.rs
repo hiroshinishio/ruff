@@ -2,7 +2,7 @@ use std::collections::{btree_set, BTreeSet};
 
 /// Ordered set of `u32`; bit-set for small values (up to 128 * B), BTreeSet for overflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum BitSet<const B: usize> {
+pub(super) enum BitSet<const B: usize> {
     /// Bit-set (in 128-bit blocks) for the first 128 * B entries.
     Blocks([u128; B]),
 
@@ -20,7 +20,7 @@ impl<const B: usize> BitSet<B> {
     const BITS: u32 = (128 * B) as u32;
 
     /// Create and return a new BitSet with a single `value` inserted.
-    pub(crate) fn with(value: u32) -> Self {
+    pub(super) fn with(value: u32) -> Self {
         let mut bitset = Self::default();
         bitset.insert(value);
         bitset
@@ -37,7 +37,7 @@ impl<const B: usize> BitSet<B> {
     /// Insert a value into the BitSet.
     ///
     /// Return true if the value was newly inserted, false if already present.
-    pub(crate) fn insert(&mut self, value: u32) -> bool {
+    pub(super) fn insert(&mut self, value: u32) -> bool {
         if value >= Self::BITS {
             self.overflow();
         }
@@ -57,7 +57,8 @@ impl<const B: usize> BitSet<B> {
     ///
     /// Equivalent to (but often more efficient than) iterating the other BitSet and inserting its
     /// values one-by-one into this BitSet.
-    pub(crate) fn merge(&mut self, other: &BitSet<B>) {
+    #[allow(dead_code)]
+    pub(super) fn merge(&mut self, other: &BitSet<B>) {
         match (self, other) {
             (Self::Blocks(myblocks), Self::Blocks(other_blocks)) => {
                 for i in 0..B {
@@ -75,20 +76,28 @@ impl<const B: usize> BitSet<B> {
         }
     }
 
-    /// Return `true` if this BitSet contains `value`; `false` if not.
-    pub(crate) fn contains(&self, value: u32) -> bool {
-        match self {
-            Self::Blocks(blocks) => {
-                let value_usize = value as usize;
-                let (block, index) = (value_usize / 128, value_usize % 128);
-                blocks[block] & (1_u128 << index) != 0
+    /// Intersect in-place with another BitSet.
+    pub(super) fn intersect(&mut self, other: &BitSet<B>) {
+        match (self, other) {
+            (Self::Blocks(myblocks), Self::Blocks(other_blocks)) => {
+                for i in 0..B {
+                    myblocks[i] &= other_blocks[i];
+                }
             }
-            Self::Overflow(set) => set.contains(&value),
+            (Self::Overflow(myset), Self::Overflow(other_set)) => {
+                let intersection = BTreeSet::from_iter(myset.intersection(other_set).copied());
+                *myset = intersection;
+            }
+            (me, other) => {
+                for value in other.iter() {
+                    me.insert(value);
+                }
+            }
         }
     }
 
     /// Return an iterator over the values (in ascending order) in this BitSet.
-    pub(crate) fn iter(&self) -> BitSetIterator<'_, B> {
+    pub(super) fn iter(&self) -> BitSetIterator<'_, B> {
         match self {
             Self::Blocks(blocks) => BitSetIterator::Blocks {
                 blocks: &blocks,
@@ -102,7 +111,7 @@ impl<const B: usize> BitSet<B> {
 
 /// Iterator over values in a [`BitSet`].
 #[derive(Debug)]
-pub(crate) enum BitSetIterator<'a, const B: usize> {
+pub(super) enum BitSetIterator<'a, const B: usize> {
     Blocks {
         /// The blocks we are iterating over.
         blocks: &'a [u128; B],
@@ -147,7 +156,7 @@ impl<const B: usize> std::iter::FusedIterator for BitSetIterator<'_, B> {}
 
 /// Array of BitSet<B>. Up to N stored inline, more than that in overflow vector.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum BitSetArray<const B: usize, const N: usize> {
+pub(super) enum BitSetArray<const B: usize, const N: usize> {
     Array {
         /// Array of N BitSets.
         array: [BitSet<B>; N],
@@ -170,10 +179,10 @@ impl<const B: usize, const N: usize> Default for BitSetArray<B, N> {
 
 impl<const B: usize, const N: usize> BitSetArray<B, N> {
     /// Create a [`BitSetArray`] of `size` empty [`BitSet`]s.
-    pub(crate) fn of_size(size: usize) -> Self {
+    pub(super) fn of_size(size: usize) -> Self {
         let mut array = Self::default();
         for _ in 0..size {
-            array.push_back();
+            array.push(BitSet::default());
         }
         array
     }
@@ -191,22 +200,38 @@ impl<const B: usize, const N: usize> BitSetArray<B, N> {
         }
     }
 
-    /// Push an empty [`BitSet`] onto the end of the array.
-    pub(crate) fn push_back(&mut self) {
+    /// Push a [`BitSet`] onto the end of the array.
+    pub(super) fn push(&mut self, new: BitSet<B>) {
         match self {
-            Self::Array { array: _, size } => {
+            Self::Array { array, size } => {
                 *size += 1;
                 if *size > N {
                     self.overflow();
-                    self.push_back();
+                    self.push(new);
+                } else {
+                    array[*size - 1] = new;
                 }
             }
-            Self::Overflow(vec) => vec.push(BitSet::default()),
+            Self::Overflow(vec) => vec.push(new),
+        }
+    }
+
+    /// Return a mutable reference to the last [`BitSet`] in the array, or None.
+    pub(super) fn last_mut(&mut self) -> Option<&mut BitSet<B>> {
+        match self {
+            Self::Array { array, size } => {
+                if *size == 0 {
+                    None
+                } else {
+                    Some(&mut array[*size - 1])
+                }
+            }
+            Self::Overflow(vec) => vec.last_mut(),
         }
     }
 
     /// Insert `value` into every [`BitSet`] in this [`BitSetArray`].
-    pub(crate) fn insert_in_each(&mut self, value: u32) {
+    pub(super) fn insert_in_each(&mut self, value: u32) {
         match self {
             Self::Array { array, size } => {
                 for i in 0..*size {
@@ -222,7 +247,7 @@ impl<const B: usize, const N: usize> BitSetArray<B, N> {
     }
 
     /// Return an iterator over each [`BitSet`] in this [`BitSetArray`].
-    pub(crate) fn iter(&self) -> BitSetArrayIterator<'_, B, N> {
+    pub(super) fn iter(&self) -> BitSetArrayIterator<'_, B, N> {
         match self {
             Self::Array { array, size } => BitSetArrayIterator::Array {
                 array,
@@ -236,7 +261,7 @@ impl<const B: usize, const N: usize> BitSetArray<B, N> {
 
 /// Iterator over a [`BitSetArray`].
 #[derive(Debug)]
-pub(crate) enum BitSetArrayIterator<'a, const B: usize, const N: usize> {
+pub(super) enum BitSetArrayIterator<'a, const B: usize, const N: usize> {
     Array {
         array: &'a [BitSet<B>; N],
         index: usize,
@@ -307,18 +332,22 @@ mod tests {
         }
 
         #[test]
+        fn intersect() {
+            let mut b1 = BitSet::<1>::with(4);
+            let mut b2 = BitSet::<1>::with(4);
+            b1.insert(23);
+            b2.insert(5);
+
+            b1.intersect(&b2);
+            assert_bitset(&b1, &[4]);
+        }
+
+        #[test]
         fn multiple_blocks() {
             let mut b = BitSet::<2>::with(130);
             b.insert(45);
             assert!(matches!(b, BitSet::Blocks(_)));
             assert_bitset(&b, &[45, 130]);
-        }
-
-        #[test]
-        fn contains() {
-            let b = BitSet::<1>::with(5);
-            assert!(b.contains(5));
-            assert!(!b.contains(4));
         }
     }
 
@@ -336,20 +365,20 @@ mod tests {
     }
 
     mod bitset_array {
-        use super::{assert_array, BitSetArray};
+        use super::{assert_array, BitSet, BitSetArray};
 
         #[test]
         fn insert_in_each() {
             let mut ba = BitSetArray::<1, 2>::default();
             assert_array(&ba, &[]);
 
-            ba.push_back();
+            ba.push(BitSet::default());
             assert_array(&ba, &[vec![]]);
 
             ba.insert_in_each(3);
             assert_array(&ba, &[vec![3]]);
 
-            ba.push_back();
+            ba.push(BitSet::default());
             assert_array(&ba, &[vec![3], vec![]]);
 
             ba.insert_in_each(79);
@@ -357,7 +386,7 @@ mod tests {
 
             assert!(matches!(ba, BitSetArray::Array { .. }));
 
-            ba.push_back();
+            ba.push(BitSet::default());
             assert!(matches!(ba, BitSetArray::Overflow(_)));
             assert_array(&ba, &[vec![3, 79], vec![79], vec![]]);
 
@@ -370,6 +399,24 @@ mod tests {
             let mut ba = BitSetArray::<1, 2>::of_size(1);
             ba.insert_in_each(5);
             assert_array(&ba, &[vec![5]])
+        }
+
+        #[test]
+        fn last_mut() {
+            let mut ba = BitSetArray::<1, 2>::of_size(1);
+
+            ba.last_mut()
+                .expect("last to not be None")
+                .merge(&BitSet::with(3));
+
+            assert_array(&ba, &[vec![3]]);
+        }
+
+        #[test]
+        fn last_mut_none() {
+            let mut ba = BitSetArray::<1, 1>::default();
+
+            assert!(ba.last_mut().is_none());
         }
     }
 }
