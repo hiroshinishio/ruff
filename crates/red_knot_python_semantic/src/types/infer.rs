@@ -60,7 +60,7 @@ pub(crate) fn infer_scope_types<'db>(db: &'db dyn Db, scope: ScopeId<'db>) -> Ty
     TypeInferenceBuilder::new(db, InferenceRegion::Scope(scope), index).finish()
 }
 
-/// Cycle recovery for [`infer_definition_types`]: for now, just [`Type::Unknown`]
+/// Cycle recovery for [`infer_definition_types()`]: for now, just [`Type::Unknown`]
 /// TODO fixpoint iteration
 fn infer_definition_types_cycle_recovery<'db>(
     _db: &'db dyn Db,

@@ -195,9 +195,11 @@ impl<'db> SemanticIndexBuilder<'db> {
         definition
     }
 
-    fn add_constraint<'a>(&mut self, constraint_node: &ast::Expr) {
+    fn add_constraint(&mut self, constraint_node: &ast::Expr) -> Expression<'db> {
         let expression = self.add_standalone_expression(constraint_node);
         self.current_use_def_map_mut().record_constraint(expression);
+
+        expression
     }
 
     /// Record an expression that needs to be a Salsa ingredient, because we need to infer its type

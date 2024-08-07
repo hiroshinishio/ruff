@@ -117,7 +117,7 @@ pub enum Type<'db> {
     /// name does not exist or is not bound to any value (this represents an error, but with some
     /// leniency options it could be silently resolved to Unknown in some cases)
     Unbound,
-    /// the None singleton object
+    /// the None object -- TODO remove this in favor of Instance(types.NoneType)
     None,
     /// a specific function object
     Function(FunctionType<'db>),

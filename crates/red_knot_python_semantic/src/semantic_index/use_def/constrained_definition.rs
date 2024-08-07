@@ -73,7 +73,7 @@ impl ConstrainedDefinitions {
         self.constraints.insert_in_each(constraint_id.into());
     }
 
-    /// Merge another [`ConstrainedDefinitions`] into this one.
+    /// Merge two [`ConstrainedDefinitions`].
     pub(super) fn merge(
         a: &ConstrainedDefinitions,
         b: &ConstrainedDefinitions,
@@ -229,7 +229,7 @@ mod tests {
     fn unbound() {
         let cd = ConstrainedDefinitions::unbound();
 
-        assert_eq!(cd.may_be_unbound(), true);
+        assert!(cd.may_be_unbound());
         assert_eq!(cd.defs().len(), 0);
     }
 
@@ -237,7 +237,7 @@ mod tests {
     fn with() {
         let cd = ConstrainedDefinitions::with(ScopedDefinitionId::from_u32(0));
 
-        assert_eq!(cd.may_be_unbound(), false);
+        assert!(!cd.may_be_unbound());
         assert_eq!(cd.defs(), &["0<>"]);
     }
 
@@ -246,7 +246,7 @@ mod tests {
         let mut cd = ConstrainedDefinitions::with(ScopedDefinitionId::from_u32(0));
         cd.add_unbound();
 
-        assert_eq!(cd.may_be_unbound(), true);
+        assert!(cd.may_be_unbound());
         assert_eq!(cd.defs(), &["0<>"]);
     }
 
@@ -255,7 +255,7 @@ mod tests {
         let mut cd = ConstrainedDefinitions::with(ScopedDefinitionId::from_u32(0));
         cd.add_constraint(ScopedConstraintId::from_u32(0));
 
-        assert_eq!(cd.may_be_unbound(), false);
+        assert!(!cd.may_be_unbound());
         assert_eq!(cd.defs(), &["0<0>"]);
     }
 
@@ -269,7 +269,7 @@ mod tests {
         cd0b.add_constraint(ScopedConstraintId::from_u32(0));
 
         let cd0 = ConstrainedDefinitions::merge(&cd0a, &cd0b);
-        assert_eq!(cd0.may_be_unbound(), false);
+        assert!(!cd0.may_be_unbound());
         assert_eq!(cd0.defs(), &["0<0>"]);
 
         // merging the same definition with differing constraints drops all constraints
@@ -280,7 +280,7 @@ mod tests {
         cd1b.add_constraint(ScopedConstraintId::from_u32(2));
 
         let cd1 = ConstrainedDefinitions::merge(&cd1a, &cd1b);
-        assert_eq!(cd1.may_be_unbound(), false);
+        assert!(!cd1.may_be_unbound());
         assert_eq!(cd1.defs(), &["1<>"]);
 
         // merging a constrained definition with unbound keeps both
@@ -290,12 +290,12 @@ mod tests {
         let cd2b = ConstrainedDefinitions::unbound();
 
         let cd2 = ConstrainedDefinitions::merge(&cd2a, &cd2b);
-        assert_eq!(cd2.may_be_unbound(), true);
+        assert!(cd2.may_be_unbound());
         assert_eq!(cd2.defs(), &["2<3>"]);
 
         // merging different definitions keeps them each with their existing constraints
         let cd = ConstrainedDefinitions::merge(&cd0, &cd2);
-        assert_eq!(cd.may_be_unbound(), true);
+        assert!(cd.may_be_unbound());
         assert_eq!(cd.defs(), &["0<0>", "2<3>"]);
     }
 }
