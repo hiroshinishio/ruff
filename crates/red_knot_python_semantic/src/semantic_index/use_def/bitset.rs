@@ -1,13 +1,13 @@
 use std::collections::{btree_set, BTreeSet};
 
-/// Ordered set of `usize`; bit-set for small values (up to 128 * B), BTreeSet for overflow.
+/// Ordered set of `u32`; bit-set for small values (up to 128 * B), BTreeSet for overflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum BitSet<const B: usize> {
     /// Bit-set (in 128-bit blocks) for the first 128 * B entries.
     Blocks([u128; B]),
 
     /// Overflow beyond 128 * B.
-    Overflow(BTreeSet<usize>),
+    Overflow(BTreeSet<u32>),
 }
 
 impl<const B: usize> Default for BitSet<B> {
@@ -17,10 +17,10 @@ impl<const B: usize> Default for BitSet<B> {
 }
 
 impl<const B: usize> BitSet<B> {
-    const BITS: usize = 128 * B;
+    const BITS: u32 = (128 * B) as u32;
 
     /// Create and return a new BitSet with a single `value` inserted.
-    pub(crate) fn with(value: usize) -> Self {
+    pub(crate) fn with(value: u32) -> Self {
         let mut bitset = Self::default();
         bitset.insert(value);
         bitset
@@ -37,13 +37,14 @@ impl<const B: usize> BitSet<B> {
     /// Insert a value into the BitSet.
     ///
     /// Return true if the value was newly inserted, false if already present.
-    pub(crate) fn insert(&mut self, value: usize) -> bool {
+    pub(crate) fn insert(&mut self, value: u32) -> bool {
         if value >= Self::BITS {
             self.overflow();
         }
         match self {
             Self::Blocks(blocks) => {
-                let (block, index) = (value / 128, value % 128);
+                let value_usize = value as usize;
+                let (block, index) = (value_usize / 128, value_usize % 128);
                 let missing = blocks[block] & (1_u128 << index) == 0;
                 blocks[block] |= 1_u128 << index;
                 missing
@@ -75,10 +76,11 @@ impl<const B: usize> BitSet<B> {
     }
 
     /// Return `true` if this BitSet contains `value`; `false` if not.
-    pub(crate) fn contains(&self, value: usize) -> bool {
+    pub(crate) fn contains(&self, value: u32) -> bool {
         match self {
             Self::Blocks(blocks) => {
-                let (block, index) = (value / 128, value % 128);
+                let value_usize = value as usize;
+                let (block, index) = (value_usize / 128, value_usize % 128);
                 blocks[block] & (1_u128 << index) != 0
             }
             Self::Overflow(set) => set.contains(&value),
@@ -111,11 +113,11 @@ pub(crate) enum BitSetIterator<'a, const B: usize> {
         /// The block we are currently iterating through (and zeroing as we go.)
         cur_block: u128,
     },
-    Overflow(btree_set::Iter<'a, usize>),
+    Overflow(btree_set::Iter<'a, u32>),
 }
 
 impl<const B: usize> Iterator for BitSetIterator<'_, B> {
-    type Item = usize;
+    type Item = u32;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
@@ -131,10 +133,10 @@ impl<const B: usize> Iterator for BitSetIterator<'_, B> {
                     *cur_block_index += 1;
                     *cur_block = blocks[*cur_block_index];
                 }
-                let value = cur_block.trailing_zeros() as usize;
+                let value = cur_block.trailing_zeros() as u32;
                 // reset the lowest set bit
                 *cur_block &= cur_block.wrapping_sub(1);
-                Some(value + (128 * *cur_block_index))
+                Some(value + (128 * (*cur_block_index as u32)))
             }
             Self::Overflow(set_iter) => set_iter.next().copied(),
         }
@@ -204,7 +206,7 @@ impl<const B: usize, const N: usize> BitSetArray<B, N> {
     }
 
     /// Insert `value` into every [`BitSet`] in this [`BitSetArray`].
-    pub(crate) fn insert_in_each(&mut self, value: usize) {
+    pub(crate) fn insert_in_each(&mut self, value: u32) {
         match self {
             Self::Array { array, size } => {
                 for i in 0..*size {
@@ -268,7 +270,7 @@ impl<const B: usize, const N: usize> std::iter::FusedIterator for BitSetArrayIte
 mod tests {
     use super::{BitSet, BitSetArray};
 
-    fn assert_bitset<const B: usize>(bitset: &BitSet<B>, contents: &[usize]) {
+    fn assert_bitset<const B: usize>(bitset: &BitSet<B>, contents: &[u32]) {
         assert_eq!(bitset.iter().collect::<Vec<_>>(), contents);
     }
 
@@ -322,7 +324,7 @@ mod tests {
 
     fn assert_array<const B: usize, const N: usize>(
         array: &BitSetArray<B, N>,
-        contents: &[Vec<usize>],
+        contents: &[Vec<u32>],
     ) {
         assert_eq!(
             array

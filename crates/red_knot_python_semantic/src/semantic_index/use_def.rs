@@ -125,7 +125,9 @@
 //! (In the future we may have some other questions we want to answer as well, such as "is this
 //! definition used?", which will require tracking a bit more info in our map, e.g. a "used" bit
 //! for each [`Definition`] which is flipped to true when we record that definition for a use.)
-use self::constrained_definition::{ConstrainedDefinitions, UNBOUND};
+use self::constrained_definition::{
+    ConstrainedDefinitions, ScopedConstraintId, ScopedDefinitionId,
+};
 use crate::semantic_index::ast_ids::ScopedUseId;
 use crate::semantic_index::definition::Definition;
 use crate::semantic_index::expression::Expression;
@@ -139,10 +141,10 @@ mod constrained_definition;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct UseDefMap<'db> {
     /// Array of [`Definition`] for [`ConstrainedDefinitions`] to reference. `None` is unbound.
-    all_definitions: Vec<Option<Definition<'db>>>,
+    all_definitions: IndexVec<ScopedDefinitionId, Definition<'db>>,
 
     /// Array of constraints (as [`Expression`]).
-    all_constraints: Vec<Expression<'db>>,
+    all_constraints: IndexVec<ScopedConstraintId, Expression<'db>>,
 
     /// Definitions that can reach a [`ScopedUseId`].
     definitions_by_use: IndexVec<ScopedUseId, ConstrainedDefinitions>,
@@ -158,7 +160,7 @@ impl<'db> UseDefMap<'db> {
     ) -> impl Iterator<Item = Definition<'db>> + '_ {
         self.definitions_by_use[use_id]
             .iter_visible_definitions()
-            .filter_map(|index| self.all_definitions[index])
+            .map(|index| self.all_definitions[index])
     }
 
     pub(crate) fn use_may_be_unbound(&self, use_id: ScopedUseId) -> bool {
@@ -171,7 +173,7 @@ impl<'db> UseDefMap<'db> {
     ) -> impl Iterator<Item = Definition<'db>> + '_ {
         self.public_definitions[symbol]
             .iter_visible_definitions()
-            .filter_map(|index| self.all_definitions[index])
+            .map(|index| self.all_definitions[index])
     }
 
     pub(crate) fn public_may_be_unbound(&self, symbol: ScopedSymbolId) -> bool {
@@ -185,14 +187,13 @@ pub(super) struct FlowSnapshot {
     definitions_by_symbol: IndexVec<ScopedSymbolId, ConstrainedDefinitions>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct UseDefMapBuilder<'db> {
-    // TODO use IndexVec and newtype index for all_definitions and all_constraints
     /// Append-only array of [`Definition`]; None is unbound.
-    all_definitions: Vec<Option<Definition<'db>>>,
+    all_definitions: IndexVec<ScopedDefinitionId, Definition<'db>>,
 
     /// Append-only array of constraints (as [`Expression`]).
-    all_constraints: Vec<Expression<'db>>,
+    all_constraints: IndexVec<ScopedConstraintId, Expression<'db>>,
 
     /// Visible definitions at each so-far-recorded use.
     definitions_by_use: IndexVec<ScopedUseId, ConstrainedDefinitions>,
@@ -203,13 +204,7 @@ pub(super) struct UseDefMapBuilder<'db> {
 
 impl<'db> UseDefMapBuilder<'db> {
     pub(super) fn new() -> Self {
-        Self {
-            // index zero is None, which is unbound
-            all_definitions: vec![None],
-            all_constraints: Vec::new(),
-            definitions_by_use: IndexVec::new(),
-            definitions_by_symbol: IndexVec::new(),
-        }
+        Self::default()
     }
 
     pub(super) fn add_symbol(&mut self, symbol: ScopedSymbolId) {
@@ -226,16 +221,14 @@ impl<'db> UseDefMapBuilder<'db> {
     ) {
         // We have a new definition of a symbol; this replaces any previous definitions in this
         // path.
-        let def_idx = self.all_definitions.len();
-        self.all_definitions.push(Some(definition));
-        self.definitions_by_symbol[symbol] = ConstrainedDefinitions::with(def_idx);
+        let def_id = self.all_definitions.push(definition);
+        self.definitions_by_symbol[symbol] = ConstrainedDefinitions::with(def_id);
     }
 
     pub(super) fn record_constraint(&mut self, constraint: Expression<'db>) {
-        let constraint_idx = self.all_constraints.len();
-        self.all_constraints.push(constraint);
+        let constraint_id = self.all_constraints.push(constraint);
         for definitions in &mut self.definitions_by_symbol {
-            definitions.add_constraint(constraint_idx);
+            definitions.add_constraint(constraint_id);
         }
     }
 
@@ -293,7 +286,7 @@ impl<'db> UseDefMapBuilder<'db> {
         for (symbol_id, current) in self.definitions_by_symbol.iter_mut_enumerated() {
             let Some(snapshot) = snapshot.definitions_by_symbol.get(symbol_id) else {
                 // Symbol not present in snapshot, so it's unbound from that path.
-                current.add_visible_definition(UNBOUND);
+                current.add_unbound();
                 continue;
             };
 
