@@ -125,7 +125,7 @@
 //! (In the future we may have some other questions we want to answer as well, such as "is this
 //! definition used?", which will require tracking a bit more info in our map, e.g. a "used" bit
 //! for each [`Definition`] which is flipped to true when we record that definition for a use.)
-use self::bitset::{BitSet, BitSetArray};
+use self::constrained_definition::{ConstrainedDefinitions, UNBOUND};
 use crate::semantic_index::ast_ids::ScopedUseId;
 use crate::semantic_index::definition::Definition;
 use crate::semantic_index::expression::Expression;
@@ -133,6 +133,7 @@ use crate::semantic_index::symbol::ScopedSymbolId;
 use ruff_index::IndexVec;
 
 mod bitset;
+mod constrained_definition;
 
 /// All definitions that can reach a given use of a name.
 #[derive(Debug, PartialEq, Eq)]
@@ -156,15 +157,12 @@ impl<'db> UseDefMap<'db> {
         use_id: ScopedUseId,
     ) -> impl Iterator<Item = Definition<'db>> + '_ {
         self.definitions_by_use[use_id]
-            .visible_definitions
-            .iter()
+            .iter_visible_definitions()
             .filter_map(|index| self.all_definitions[index])
     }
 
     pub(crate) fn use_may_be_unbound(&self, use_id: ScopedUseId) -> bool {
-        self.definitions_by_use[use_id]
-            .visible_definitions
-            .contains(UNBOUND)
+        self.definitions_by_use[use_id].may_be_unbound()
     }
 
     pub(crate) fn public_definitions(
@@ -172,77 +170,12 @@ impl<'db> UseDefMap<'db> {
         symbol: ScopedSymbolId,
     ) -> impl Iterator<Item = Definition<'db>> + '_ {
         self.public_definitions[symbol]
-            .visible_definitions
-            .iter()
+            .iter_visible_definitions()
             .filter_map(|index| self.all_definitions[index])
     }
 
     pub(crate) fn public_may_be_unbound(&self, symbol: ScopedSymbolId) -> bool {
-        self.public_definitions[symbol]
-            .visible_definitions
-            .contains(UNBOUND)
-    }
-}
-
-/// Can reference this * 128 definitions efficiently; tune for performance vs memory.
-const DEFINITION_BLOCKS: usize = 4;
-
-type Definitions = BitSet<DEFINITION_BLOCKS>;
-
-/// Can reference this * 128 constraints efficiently; tune for performance vs memory.
-const CONSTRAINT_BLOCKS: usize = 4;
-
-/// Can handle this many visible definitions per symbol at a given time efficiently.
-const MAX_EXPECTED_VISIBLE_DEFINITIONS_PER_SYMBOL: usize = 16;
-
-type Constraints = BitSetArray<CONSTRAINT_BLOCKS, MAX_EXPECTED_VISIBLE_DEFINITIONS_PER_SYMBOL>;
-
-/// Definition index zero is reserved for None (unbound).
-const UNBOUND: usize = 0;
-
-/// Constrained definitions visible for a symbol at a particular use (or end-of-scope).
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ConstrainedDefinitions {
-    /// Which indices in `all_definitions` are visible?
-    visible_definitions: Definitions,
-
-    /// For each definition, which constraints in `all_constraints` apply?
-    constraints: Constraints,
-}
-
-impl ConstrainedDefinitions {
-    fn unbound() -> Self {
-        Self::with(UNBOUND)
-    }
-
-    fn with(definition_index: usize) -> Self {
-        Self {
-            visible_definitions: Definitions::with(definition_index),
-            constraints: Constraints::of_size(1),
-        }
-    }
-
-    /// Add given definition index as a visible definition
-    fn add_visible_definition(&mut self, definition_index: usize) {
-        self.visible_definitions.insert(definition_index);
-        // TODO update constraints
-    }
-
-    /// Add given constraint index to all definitions
-    fn add_constraint(&mut self, constraint_index: usize) {
-        self.constraints.insert_in_each(constraint_index);
-    }
-
-    /// Merge another [`ConstrainedDefinitions`] into this one.
-    fn merge(&mut self, other: &ConstrainedDefinitions) {
-        self.visible_definitions.merge(&other.visible_definitions);
-        // TODO merge constraints also
-    }
-}
-
-impl Default for ConstrainedDefinitions {
-    fn default() -> Self {
-        ConstrainedDefinitions::unbound()
+        self.public_definitions[symbol].may_be_unbound()
     }
 }
 
