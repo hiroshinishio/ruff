@@ -88,31 +88,30 @@ impl<const B: usize> BitSet<B> {
     /// Return an iterator over the values (in ascending order) in this BitSet.
     pub(crate) fn iter(&self) -> BitSetIterator<'_, B> {
         match self {
-            Self::Blocks(blocks) => BitSetIterator::Blocks(BitSetBlocksIterator {
+            Self::Blocks(blocks) => BitSetIterator::Blocks {
                 blocks: &blocks,
                 cur_block_index: 0,
                 cur_block: blocks[0],
-            }),
+            },
             Self::Overflow(set) => BitSetIterator::Overflow(set.iter()),
         }
     }
 }
 
 /// Iterator over values in a [`BitSet`].
+#[derive(Debug)]
 pub(crate) enum BitSetIterator<'a, const B: usize> {
-    Blocks(BitSetBlocksIterator<'a, B>),
+    Blocks {
+        /// The blocks we are iterating over.
+        blocks: &'a [u128; B],
+
+        /// The index of the block we are currently iterating through.
+        cur_block_index: usize,
+
+        /// The block we are currently iterating through (and zeroing as we go.)
+        cur_block: u128,
+    },
     Overflow(btree_set::Iter<'a, usize>),
-}
-
-pub(crate) struct BitSetBlocksIterator<'a, const B: usize> {
-    /// The blocks we are iterating over.
-    blocks: &'a [u128; B],
-
-    /// The index of the block we are currently iterating through.
-    cur_block_index: usize,
-
-    /// The block we are currently iterating through (and zeroing as we go.)
-    cur_block: u128,
 }
 
 impl<const B: usize> Iterator for BitSetIterator<'_, B> {
@@ -120,18 +119,22 @@ impl<const B: usize> Iterator for BitSetIterator<'_, B> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::Blocks(iter) => {
-                while iter.cur_block == 0 {
-                    if iter.cur_block_index == B - 1 {
+            Self::Blocks {
+                blocks,
+                cur_block_index,
+                cur_block,
+            } => {
+                while *cur_block == 0 {
+                    if *cur_block_index == B - 1 {
                         return None;
                     }
-                    iter.cur_block_index += 1;
-                    iter.cur_block = iter.blocks[iter.cur_block_index];
+                    *cur_block_index += 1;
+                    *cur_block = blocks[*cur_block_index];
                 }
-                let value = iter.cur_block.trailing_zeros() as usize;
+                let value = cur_block.trailing_zeros() as usize;
                 // reset the lowest set bit
-                iter.cur_block &= iter.cur_block.wrapping_sub(1);
-                Some(value + (128 * iter.cur_block_index))
+                *cur_block &= cur_block.wrapping_sub(1);
+                Some(value + (128 * *cur_block_index))
             }
             Self::Overflow(set_iter) => set_iter.next().copied(),
         }
@@ -230,6 +233,7 @@ impl<const B: usize, const N: usize> BitSetArray<B, N> {
 }
 
 /// Iterator over a [`BitSetArray`].
+#[derive(Debug)]
 pub(crate) enum BitSetArrayIterator<'a, const B: usize, const N: usize> {
     Array {
         array: &'a [BitSet<B>; N],
