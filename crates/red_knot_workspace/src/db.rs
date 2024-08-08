@@ -138,6 +138,7 @@ impl Db for RootDatabase {}
 #[cfg(test)]
 pub(crate) mod tests {
     use salsa::Event;
+    use std::sync::Arc;
 
     use red_knot_python_semantic::{vendored_typeshed_stubs, Db as SemanticDb};
     use ruff_db::files::Files;
@@ -150,6 +151,7 @@ pub(crate) mod tests {
     #[salsa::db]
     pub(crate) struct TestDb {
         storage: salsa::Storage<Self>,
+        events: std::sync::Arc<std::sync::Mutex<Vec<salsa::Event>>>,
         files: Files,
         system: TestSystem,
         vendored: VendoredFileSystem,
@@ -162,7 +164,21 @@ pub(crate) mod tests {
                 system: TestSystem::default(),
                 vendored: vendored_typeshed_stubs().clone(),
                 files: Files::default(),
+                events: Arc::default(),
             }
+        }
+    }
+
+    impl TestDb {
+        /// Takes the salsa events.
+        ///
+        /// ## Panics
+        /// If there are any pending salsa snapshots.
+        pub(crate) fn take_salsa_events(&mut self) -> Vec<salsa::Event> {
+            let inner = Arc::get_mut(&mut self.events).expect("no pending salsa snapshots");
+
+            let events = inner.get_mut().unwrap();
+            std::mem::take(&mut *events)
         }
     }
 
@@ -216,6 +232,9 @@ pub(crate) mod tests {
 
     #[salsa::db]
     impl salsa::Database for TestDb {
-        fn salsa_event(&self, _event: &dyn Fn() -> Event) {}
+        fn salsa_event(&self, event: &dyn Fn() -> Event) {
+            let mut events = self.events.lock().unwrap();
+            events.push(event());
+        }
     }
 }
