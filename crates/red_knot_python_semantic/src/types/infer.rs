@@ -1177,12 +1177,10 @@ impl<'db> TypeInferenceBuilder<'db> {
         let body_ty = self.infer_expression(body);
         let orelse_ty = self.infer_expression(orelse);
 
-        let union = UnionTypeBuilder::new(self.db)
+        UnionTypeBuilder::new(self.db)
             .add(body_ty)
             .add(orelse_ty)
-            .build();
-
-        Type::Union(union)
+            .build()
     }
 
     fn infer_lambda_body(&mut self, lambda_expression: &ast::ExprLambda) {
@@ -2185,7 +2183,7 @@ mod tests {
         db.write_dedented(
             "/src/a.py",
             "
-            x = None if flag else 1
+            x = None if 0 else 1
             y = 0
             if x is not None:
                 y = x

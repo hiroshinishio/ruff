@@ -186,6 +186,7 @@ impl<'db> UseDefMap<'db> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct DefinitionWithConstraintsIterator<'map, 'db> {
     all_definitions: &'map IndexVec<ScopedDefinitionId, Definition<'db>>,
     all_constraints: &'map IndexVec<ScopedConstraintId, Expression<'db>>,
