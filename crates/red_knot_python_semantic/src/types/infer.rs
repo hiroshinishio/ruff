@@ -40,7 +40,7 @@ use crate::semantic_index::symbol::{FileScopeId, NodeWithScopeKind, NodeWithScop
 use crate::semantic_index::SemanticIndex;
 use crate::types::{
     builtins_symbol_ty_by_name, definitions_ty, global_symbol_ty_by_name, ClassType, FunctionType,
-    Name, Type, UnionTypeBuilder,
+    Type, UnionTypeBuilder,
 };
 use crate::Db;
 
@@ -464,7 +464,7 @@ impl<'db> TypeInferenceBuilder<'db> {
             name,
             type_params: _,
             decorator_list,
-            arguments,
+            arguments: _,
             body: _,
         } = class;
 
@@ -472,21 +472,23 @@ impl<'db> TypeInferenceBuilder<'db> {
             self.infer_decorator(decorator);
         }
 
-        // TODO if there are type params, the bases should be inferred inside that scope (only)
-
-        let bases = arguments
-            .as_deref()
-            .map(|arguments| self.infer_arguments(arguments))
-            .unwrap_or(Vec::new());
-
         let body_scope = self
             .index
             .node_scope(NodeWithScopeRef::Class(class))
             .to_scope_id(self.db, self.file);
 
-        let class_ty = Type::Class(ClassType::new(self.db, name.id.clone(), bases, body_scope));
+        let class_ty = Type::Class(ClassType::new(
+            self.db,
+            name.id.clone(),
+            definition,
+            body_scope,
+        ));
 
         self.types.definitions.insert(definition, class_ty);
+
+        for base in class.bases() {
+            self.infer_expression(base);
+        }
     }
 
     fn infer_if_statement(&mut self, if_statement: &ast::StmtIf) {
@@ -824,7 +826,7 @@ impl<'db> TypeInferenceBuilder<'db> {
             asname: _,
         } = alias;
 
-        let ty = module_ty.member(self.db, &Name::new(&name.id));
+        let ty = module_ty.member(self.db, &ast::name::Name::new(&name.id));
 
         self.types.definitions.insert(definition, ty);
     }
@@ -1311,7 +1313,7 @@ impl<'db> TypeInferenceBuilder<'db> {
         } = attribute;
 
         let value_ty = self.infer_expression(value);
-        let member_ty = value_ty.member(self.db, &Name::new(&attr.id));
+        let member_ty = value_ty.member(self.db, &ast::name::Name::new(&attr.id));
 
         match ctx {
             ExprContext::Load => member_ty,
@@ -1588,7 +1590,6 @@ mod tests {
 
         let base_names: Vec<_> = class
             .bases(&db)
-            .iter()
             .map(|base_ty| format!("{}", base_ty.display(&db)))
             .collect();
 
@@ -1986,14 +1987,14 @@ mod tests {
         let Type::Class(c_class) = c_ty else {
             panic!("C is not a Class")
         };
-        let c_bases = c_class.bases(&db);
-        let b_ty = c_bases.first().unwrap();
+        let mut c_bases = c_class.bases(&db);
+        let b_ty = c_bases.next().unwrap();
         let Type::Class(b_class) = b_ty else {
             panic!("B is not a Class")
         };
         assert_eq!(b_class.name(&db), "B");
-        let b_bases = b_class.bases(&db);
-        let a_ty = b_bases.first().unwrap();
+        let mut b_bases = b_class.bases(&db);
+        let a_ty = b_bases.next().unwrap();
         let Type::Class(a_class) = a_ty else {
             panic!("A is not a Class")
         };

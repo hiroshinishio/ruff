@@ -1,8 +1,9 @@
 use ruff_db::files::File;
-use ruff_python_ast::name::Name;
+use ruff_python_ast as ast;
 
 use crate::builtins::builtins_scope;
-use crate::semantic_index::definition::Definition;
+use crate::semantic_index::ast_ids::HasScopedAstId;
+use crate::semantic_index::definition::{Definition, DefinitionKind};
 use crate::semantic_index::symbol::{ScopeId, ScopedSymbolId};
 use crate::semantic_index::{global_scope, symbol_table, use_def_map};
 use crate::{Db, FxOrderSet};
@@ -145,7 +146,7 @@ impl<'db> Type<'db> {
     }
 
     #[must_use]
-    pub fn member(&self, db: &'db dyn Db, name: &Name) -> Type<'db> {
+    pub fn member(&self, db: &'db dyn Db, name: &ast::name::Name) -> Type<'db> {
         match self {
             Type::Any => Type::Any,
             Type::Never => todo!("attribute lookup on Never type"),
@@ -195,7 +196,7 @@ impl<'db> Type<'db> {
 #[salsa::interned]
 pub struct FunctionType<'db> {
     /// name of the function at definition
-    pub name: Name,
+    pub name: ast::name::Name,
 
     /// types of all decorators on this function
     decorators: Vec<Type<'db>>,
@@ -210,19 +211,35 @@ impl<'db> FunctionType<'db> {
 #[salsa::interned]
 pub struct ClassType<'db> {
     /// Name of the class at definition
-    pub name: Name,
+    pub name: ast::name::Name,
 
-    /// Types of all class bases
-    bases: Vec<Type<'db>>,
+    definition: Definition<'db>,
 
     body_scope: ScopeId<'db>,
 }
 
 impl<'db> ClassType<'db> {
+    /// Return an iterator over the types of this class's bases.
+    ///
+    /// # Panics:
+    /// If `de
+    pub fn bases(&self, db: &'db dyn Db) -> impl Iterator<Item = Type<'db>> {
+        let DefinitionKind::Class(class_stmt_node) = self.definition(db).node(db) else {
+            panic!("Class type definition must have DefinitionKind::Class");
+        };
+        // TODO if there are type params, the bases should be inferred inside that scope (only)
+        let scope = self.definition(db).scope(db);
+        let inference = infer_scope_types(db, scope);
+        class_stmt_node
+            .bases()
+            .iter()
+            .map(move |base_expr| inference.expression_ty(base_expr.scoped_ast_id(db, scope)))
+    }
+
     /// Returns the class member of this class named `name`.
     ///
     /// The member resolves to a member of the class itself or any of its bases.
-    pub fn class_member(self, db: &'db dyn Db, name: &Name) -> Type<'db> {
+    pub fn class_member(self, db: &'db dyn Db, name: &ast::name::Name) -> Type<'db> {
         let member = self.own_class_member(db, name);
         if !member.is_unbound() {
             return member;
@@ -232,12 +249,12 @@ impl<'db> ClassType<'db> {
     }
 
     /// Returns the inferred type of the class member named `name`.
-    pub fn own_class_member(self, db: &'db dyn Db, name: &Name) -> Type<'db> {
+    pub fn own_class_member(self, db: &'db dyn Db, name: &ast::name::Name) -> Type<'db> {
         let scope = self.body_scope(db);
         symbol_ty_by_name(db, scope, name)
     }
 
-    pub fn inherited_class_member(self, db: &'db dyn Db, name: &Name) -> Type<'db> {
+    pub fn inherited_class_member(self, db: &'db dyn Db, name: &ast::name::Name) -> Type<'db> {
         for base in self.bases(db) {
             let member = base.member(db, name);
             if !member.is_unbound() {
