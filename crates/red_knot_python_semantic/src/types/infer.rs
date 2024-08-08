@@ -2183,7 +2183,7 @@ mod tests {
         db.write_dedented(
             "/src/a.py",
             "
-            x = None if 0 else 1
+            x = None if flag else 1
             y = 0
             if x is not None:
                 y = x
