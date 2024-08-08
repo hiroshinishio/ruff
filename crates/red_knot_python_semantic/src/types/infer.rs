@@ -2191,6 +2191,16 @@ mod tests {
         Ok(())
     }
 
+    /// Test that a class's bases can be self-referential; this looks silly but
+    /// a slightly more complex version of tit actually occurs in typeshed: `class str(Sequence[str]): ...`
+    #[test]
+    fn cyclical_class_pyi_definition() -> anyhow::Result<()> {
+        let mut db = setup_db();
+        db.write_file("/src/a.pyi", "class C(C): ...")?;
+        assert_public_ty(&db, "/src/a.pyi", "C", "Literal[C]");
+        Ok(())
+    }
+
     #[test]
     fn while_loop() -> anyhow::Result<()> {
         let mut db = setup_db();
