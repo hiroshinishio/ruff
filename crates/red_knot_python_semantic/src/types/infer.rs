@@ -1543,7 +1543,7 @@ mod tests {
         let src_root = SystemPathBuf::from("/src");
 
         db.write_files(files)
-            .context("Failed to write test failes")?;
+            .context("Failed to write test files")?;
 
         Program::from_settings(
             &db,
